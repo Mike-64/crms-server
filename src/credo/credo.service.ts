@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from "@nestjs/common";
 import {
   Agent,
   HttpOutboundTransport,
@@ -12,32 +12,36 @@ import {
   DidsModule,
   CredentialsModule,
   V2CredentialProtocol,
-  CredentialStateChangedEvent,
-  CredentialEventTypes,
-  CredentialState,
   ConsoleLogger,
   LogLevel,
   ConnectionRecord,
+  DidKey,
+  KeyDidCreateOptions,
+  KeyType,
+  TypedArrayEncoder,
+  VerificationMethod,
+  CredentialStateChangedEvent,
+  CredentialEventTypes,
+  CredentialState,
 } from '@credo-ts/core';
-import { HttpInboundTransport, agentDependencies } from '@credo-ts/node';
-import { AskarModule } from '@credo-ts/askar';
-import { ariesAskar } from '@hyperledger/aries-askar-nodejs';
+import { HttpInboundTransport, agentDependencies } from "@credo-ts/node";
+import { AskarModule } from "@credo-ts/askar";
+import { ariesAskar } from "@hyperledger/aries-askar-nodejs";
 import {
   IndyVdrAnonCredsRegistry,
   IndyVdrIndyDidRegistrar,
   IndyVdrIndyDidResolver,
   IndyVdrModule,
-} from '@credo-ts/indy-vdr';
-import { indyVdr } from '@hyperledger/indy-vdr-nodejs';
-import ledgers from '../config/ledgers/indy/index';
-import { QrcodeService } from 'src/qrcode/qrcode.service';
-import type { IndyVdrPoolConfig } from '@credo-ts/indy-vdr';
+} from "@credo-ts/indy-vdr";
+import { indyVdr } from "@hyperledger/indy-vdr-nodejs";
+import ledgers from "../config/ledgers/indy/index";
+import { QrcodeService } from "src/qrcode/qrcode.service";
+import type { IndyVdrPoolConfig } from "@credo-ts/indy-vdr";
 import {
   AnonCredsCredentialFormatService,
   AnonCredsModule,
   LegacyIndyCredentialFormatService,
 } from '@credo-ts/anoncreds';
-import { anoncreds } from '@hyperledger/anoncreds-nodejs';
 import {
   DrpcModule,
   DrpcRecord,
@@ -47,6 +51,20 @@ import {
 import type { DrpcRequest } from '@credo-ts/drpc';
 import { Workflow } from "./workflow";
 import { ParserService } from 'src/parser/parser.service';
+import { anoncreds } from "@hyperledger/anoncreds-nodejs";
+import {
+  OpenId4VcIssuerModule,
+  OpenId4VcIssuerRecord,
+  OpenId4VcVerifierModule,
+  OpenId4VcVerifierRecord,
+} from "@credo-ts/openid4vc";
+import express from "express";
+import { Router } from "express";
+import {
+  credentialRequestToCredentialMapper,
+  credentialsSupported,
+  setupCredentialListener,
+} from "src/common/utils/oid4vcSupport";
 
 @Injectable()
 export class CredoService {
@@ -56,17 +74,28 @@ export class CredoService {
   private agents: Map<string, Agent> = new Map();
   private workflows: Map<string, Workflow> = new Map();
   private instances: Map<string, string> = new Map(); // map instanceId to workflowId
+  public issuerRecord!: OpenId4VcIssuerRecord;
+  public did!: string;
+  public didKey!: DidKey;
+  public kid!: string;
+  public verificationMethod!: VerificationMethod;
+  constructor(private readonly qrCodeService: QrcodeService, private readonly parserService: ParserService) {}
+  public verifierRecord!: OpenId4VcVerifierRecord;
+  private app: any;
 
-  constructor(
-    private readonly qrCodeService: QrcodeService,
-    private readonly parserService: ParserService
-  ) {}
-
-  async createAgent(name: string, endpoint: string, port: number) {
+  async createAgent(
+    name: string,
+    endpoint: string,
+    port: number,
+    oid4vcPort: number,
+    oid4vcListen: number
+  ) {
+    console.log("Create agent: ", name);
     if (this.agents.has(name)) {
       this.logger.log(`Agent ${name} is already initialized on port ${port}`);
       return this.agents.get(name);
     }
+    this.app = express();
 
     // Agent configuration
     this.config = {
@@ -78,7 +107,10 @@ export class CredoService {
       endpoints: [`${endpoint}:${port}`],
       logger: new ConsoleLogger(LogLevel.info),
     };
+    const verifierRouter = Router();
+    const issuerRouter = Router();
 
+    console.log("Create agent - create the agent");
     this.agent = new Agent({
       config: this.config,
       dependencies: agentDependencies,
@@ -105,7 +137,21 @@ export class CredoService {
           registrars: [new IndyVdrIndyDidRegistrar()],
           resolvers: [new IndyVdrIndyDidResolver()],
         }),
+        openId4VcVerifier: new OpenId4VcVerifierModule({
+          baseUrl: `http://${endpoint}:${oid4vcPort}/siop`, //"http://localhost:2000/siop",
+          router: verifierRouter,
+        }),
+        openId4VcIssuer: new OpenId4VcIssuerModule({
+          baseUrl: `http://${endpoint}:${oid4vcPort}/oid4vci`,
+          router: issuerRouter,
 
+          endpoints: {
+            credential: {
+              credentialRequestToCredentialMapper:
+                credentialRequestToCredentialMapper,
+            },
+          },
+        }),
         // to issue a credential
         credentials: new CredentialsModule({
           credentialProtocols: [
@@ -122,25 +168,88 @@ export class CredoService {
       },
     });
 
+    console.log("Create agent - new Agent created");
+
     // Register a simple `WebSocket` outbound transport
     this.agent.registerOutboundTransport(new WsOutboundTransport());
     // Register a simple `Http` outbound transport
     this.agent.registerOutboundTransport(new HttpOutboundTransport());
     // Register a simple `Http` inbound transport
     this.agent.registerInboundTransport(
-      new HttpInboundTransport({ port: port }),
+      new HttpInboundTransport({ port: port })
     );
+    this.app.use("/siop", verifierRouter);
+    this.app.use("/oid4vci", issuerRouter);
+    this.app.listen(oid4vcListen, () => {
+      console.log("Oidc Server listening on port: ", oid4vcListen);
+    });
 
     // Initialize the agent
     try {
       await this.agent.initialize();
+      this.issuerRecord = await this.agent.modules.openId4VcIssuer.createIssuer(
+        {
+          credentialsSupported,
+        }
+      );
+
+      const didCreateResult = await this.agent.dids.create<KeyDidCreateOptions>(
+        {
+          method: "key",
+          options: { keyType: KeyType.Ed25519 },
+          secret: {
+            privateKey: TypedArrayEncoder.fromString(
+              "96213c3d7fc8d4d6754c7a0fd969598g"
+            ),
+          },
+        }
+      );
+      console.log(didCreateResult, "didCreateResultdidCreateResult");
+      this.did = didCreateResult.didState.did as string;
+      console.log(this.did, "this.didthis.didthis.did");
+      if (this.did) {
+        this.didKey = DidKey.fromDid(this.did);
+      } else {
+        this.logger.log("No DID found, using default");
+        this.didKey = DidKey.fromDid(
+          "did:key:z6MktiQQEqm2yapXBDt1WEVB3dqgvyzi96FuFANYmrgTrKV9"
+        );
+      }
+
+      this.kid = `${this.did}#${this.didKey.key.fingerprint}`;
+
+      const verificationMethod =
+        didCreateResult.didState.didDocument?.dereferenceKey(this.kid, [
+          "authentication",
+        ]);
+      console.log(verificationMethod, "verificationMethodverificationMethod");
+      if (!verificationMethod) {
+        this.logger.log("No verification method found, using default");
+        this.verificationMethod = new VerificationMethod({
+          id: "did:key:z6MkrzQPBr4pyqC776KKtrz13SchM5ePPbssuPuQZb5t4uKQ#z6MkrzQPBr4pyqC776KKtrz13SchM5ePPbssuPuQZb5t4uKQ",
+          type: "Ed25519VerificationKey2018",
+          controller:
+            "did:key:z6MkrzQPBr4pyqC776KKtrz13SchM5ePPbssuPuQZb5t4uKQ",
+          publicKeyBase58: "DY9LbbpPeHhdzbUdDJ2ACM4hXWNXyidXDNzUjK7s9gY2",
+          publicKeyBase64: undefined,
+          publicKeyJwk: undefined,
+          publicKeyHex: undefined,
+          publicKeyMultibase: undefined,
+          publicKeyPem: undefined,
+          blockchainAccountId: undefined,
+          ethereumAddress: undefined,
+        });
+      } else {
+        this.verificationMethod = verificationMethod;
+      }
+      // this.verificationMethod = verificationMethod;
       this.agents.set(name, this.agent);
       this.logger.log(
-        `Agent ${name} initialized on endpoint ${endpoint}:${port}`,
+        `Agent ${name} initialized on endpoint ${endpoint}:${port}`
       );
     } catch (e) {
       this.logger.error(
-        `Something went wrong while setting up the agent! Message: ${e}`,
+        `Something went wrong while setting up the agent! Message: ${e}`
       );
       throw e;
     }
@@ -156,7 +265,7 @@ export class CredoService {
         // Creating a Legacy Invitation
         const { invitation } = await agent.oob.createLegacyInvitation();
         const invitationUrl = invitation.toUrl({
-          domain: agent.config?.endpoints[0] ?? 'https://example.org',
+          domain: agent.config?.endpoints[0] ?? "https://example.org",
         });
         this.logger.log(`Legacy Invitation link created: ${invitationUrl}`);
         return { invitationUrl };
@@ -177,7 +286,7 @@ export class CredoService {
       try {
         const outOfBandRecord = await agent.oob.createInvitation();
         const invitationUrl = outOfBandRecord.outOfBandInvitation.toUrl({
-          domain: agent.config?.endpoints[0] ?? 'https://example.org',
+          domain: agent.config?.endpoints[0] ?? "https://example.org",
         });
         //const invitationUrlQRcode =
         //  await this.qrCodeService.generateQrCode(invitationUrl);
@@ -204,13 +313,13 @@ export class CredoService {
           await agent.oob.receiveInvitationFromUrl(invitationUrl);
         this.logger.log(`Received invitation for agent ${agentName}`);
         this.logger.log(
-          `OutOfBandRecord received: ${JSON.stringify(outOfBandRecord)}`,
+          `OutOfBandRecord received: ${JSON.stringify(outOfBandRecord)}`
         );
         // Setup listener
         this.setupConnectionListener(agent, outOfBandRecord, () => {});
       } catch (error) {
         this.logger.error(
-          `Error receiving invitation for agent ${agentName}: ${error}`,
+          `Error receiving invitation for agent ${agentName}: ${error}`
         );
         throw error;
       }
@@ -222,7 +331,7 @@ export class CredoService {
   setupConnectionListener(
     agent: Agent,
     outOfBandRecord: OutOfBandRecord,
-    cb: (...args: any) => void,
+    cb: (...args: any) => void
   ) {
     agent.events.on<ConnectionStateChangedEvent>(
       ConnectionEventTypes.ConnectionStateChanged,
@@ -231,7 +340,7 @@ export class CredoService {
         if (payload.connectionRecord.state === DidExchangeState.Completed) {
           // the connection is now ready for usage in other protocols!
           this.logger.log(
-            `Connection for out-of-band id ${outOfBandRecord.id} completed.`,
+            `Connection for out-of-band id ${outOfBandRecord.id} completed.`
           );
 
           // Custom business logic can be included here
@@ -253,7 +362,7 @@ export class CredoService {
           // We exit the flow
           // process.exit(0);
         }
-      },
+      }
     );
   }
 
@@ -268,18 +377,18 @@ export class CredoService {
   async issueCredential(
     connectionId: string,
     credentialDefinitionId: string,
-    attributes: any,
+    attributes: any
   ) {
     const [connectionRecord] =
       await this.agent.connections.findAllByOutOfBandId(connectionId);
 
     if (!connectionRecord) {
       throw new Error(
-        `ConnectionRecord: record with id ${connectionId} not found.`,
+        `ConnectionRecord: record with id ${connectionId} not found.`
       );
     }
 
-    console.log(attributes, 'attributesattributesattributes');
+    console.log(attributes, "attributesattributesattributes");
     const credentialExchangeRecord =
       await this.agent.credentials.offerCredential({
         connectionId: connectionRecord.id,
@@ -289,7 +398,7 @@ export class CredoService {
             attributes,
           },
         },
-        protocolVersion: 'v2' as never,
+        protocolVersion: "v2" as never,
       });
 
     return credentialExchangeRecord;

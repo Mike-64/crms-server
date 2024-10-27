@@ -11,6 +11,9 @@ import { ParserModule } from './parser/parser.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Templates } from './tables/templates.entity';
 import { Instance } from './tables/instance.entity';
+import { Oid4vcController } from './oid4vc/oid4vc.controller';
+import { Oid4vcModule } from './oid4vc/oid4vc.module';
+import { Oid4vcService } from "./oid4vc/oid4vc.service";
 
 @Module({
   imports: [
@@ -32,8 +35,9 @@ import { Instance } from './tables/instance.entity';
       synchronize: true,
       logging: true,
     }),
+    Oid4vcModule,
   ],
-  controllers: [AppController],
-  providers: [AppService],
+  controllers: [AppController, Oid4vcController],
+  providers: [AppService, Oid4vcService],
 })
 export class AppModule {}
