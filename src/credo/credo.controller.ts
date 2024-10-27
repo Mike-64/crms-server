@@ -8,10 +8,21 @@ import { CreateAgentDto } from './dto/credo.dto';
 @ApiTags('Credo')
 export class CredoController {
   private readonly logger = new Logger(CredoController.name);
-  private agentId: string;
-  constructor(private readonly credoService: CredoService) {
-    
+  constructor(private readonly credoService: CredoService) {}
+
+  @Get('agent-alice')
+  createAgentAlice(): string {
+    this.credoService.createAgent("Alice", "http://192.168.2.192", 9000, 4000, 5000);
+    return 'Started agent';
   }
+
+  @Get('agent-faber')
+  createAgentFaber(): string {
+    this.credoService.createAgent("Faber", "http://192.168.2.192", 9001, 4001, 5001);
+    return 'Started agent';
+  }
+  private agentId: string;
+
   @Post('start')
   async startAgent(@Body() createAgentDto: CreateAgentDto): Promise<string> {
     
@@ -20,7 +31,8 @@ export class CredoController {
       createAgentDto.name,
       createAgentDto.endpoint,
       createAgentDto.port,
-      createAgentDto.oid4vcPort
+      createAgentDto.oid4vcPort,
+      2000
     )
     this.agentId = createAgentDto.name;
     return 'Agent started';

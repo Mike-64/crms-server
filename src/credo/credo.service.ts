@@ -14,12 +14,16 @@ import {
   V2CredentialProtocol,
   ConsoleLogger,
   LogLevel,
+  ConnectionRecord,
   DidKey,
   KeyDidCreateOptions,
   KeyType,
   TypedArrayEncoder,
   VerificationMethod,
-} from "@credo-ts/core";
+  CredentialStateChangedEvent,
+  CredentialEventTypes,
+  CredentialState,
+} from '@credo-ts/core';
 import { HttpInboundTransport, agentDependencies } from "@credo-ts/node";
 import { AskarModule } from "@credo-ts/askar";
 import { ariesAskar } from "@hyperledger/aries-askar-nodejs";
@@ -37,7 +41,16 @@ import {
   AnonCredsCredentialFormatService,
   AnonCredsModule,
   LegacyIndyCredentialFormatService,
-} from "@credo-ts/anoncreds";
+} from '@credo-ts/anoncreds';
+import {
+  DrpcModule,
+  DrpcRecord,
+  DrpcRequestEventTypes,
+  DrpcRequestStateChangedEvent,
+} from '@credo-ts/drpc';
+import type { DrpcRequest } from '@credo-ts/drpc';
+import { Workflow } from "./workflow";
+import { ParserService } from 'src/parser/parser.service';
 import { anoncreds } from "@hyperledger/anoncreds-nodejs";
 import {
   OpenId4VcIssuerModule,
@@ -59,20 +72,25 @@ export class CredoService {
   public agent: Agent;
   private config: InitConfig;
   private agents: Map<string, Agent> = new Map();
+  private workflows: Map<string, Workflow> = new Map();
+  private instances: Map<string, string> = new Map(); // map instanceId to workflowId
   public issuerRecord!: OpenId4VcIssuerRecord;
   public did!: string;
   public didKey!: DidKey;
   public kid!: string;
   public verificationMethod!: VerificationMethod;
-  constructor(private readonly qrCodeService: QrcodeService) {}
+  constructor(private readonly qrCodeService: QrcodeService, private readonly parserService: ParserService) {}
   public verifierRecord!: OpenId4VcVerifierRecord;
   private app: any;
+
   async createAgent(
     name: string,
     endpoint: string,
     port: number,
-    oid4vcPort: number
+    oid4vcPort: number,
+    oid4vcListen: number
   ) {
+    console.log("Create agent: ", name);
     if (this.agents.has(name)) {
       this.logger.log(`Agent ${name} is already initialized on port ${port}`);
       return this.agents.get(name);
@@ -91,6 +109,8 @@ export class CredoService {
     };
     const verifierRouter = Router();
     const issuerRouter = Router();
+
+    console.log("Create agent - create the agent");
     this.agent = new Agent({
       config: this.config,
       dependencies: agentDependencies,
@@ -105,6 +125,7 @@ export class CredoService {
         askar: new AskarModule({
           ariesAskar,
         }),
+
         connections: new ConnectionsModule({ autoAcceptConnections: true }),
 
         anoncreds: new AnonCredsModule({
@@ -131,7 +152,6 @@ export class CredoService {
             },
           },
         }),
-
         // to issue a credential
         credentials: new CredentialsModule({
           credentialProtocols: [
@@ -143,8 +163,12 @@ export class CredoService {
             }),
           ],
         }),
+
+        drpc: new DrpcModule(),
       },
     });
+
+    console.log("Create agent - new Agent created");
 
     // Register a simple `WebSocket` outbound transport
     this.agent.registerOutboundTransport(new WsOutboundTransport());
@@ -156,8 +180,8 @@ export class CredoService {
     );
     this.app.use("/siop", verifierRouter);
     this.app.use("/oid4vci", issuerRouter);
-    this.app.listen(2000, () => {
-      console.log("Oidc Server listening on port 3000");
+    this.app.listen(oid4vcListen, () => {
+      console.log("Oidc Server listening on port: ", oid4vcListen);
     });
 
     // Initialize the agent
@@ -255,7 +279,7 @@ export class CredoService {
   }
 
   // This method will create an invitation using the legacy method according to 0434: Out-of-Band Protocol 1.1.
-  async createNewInvitation(agentName: string) {
+  async createNewInvitation(agentName: string): Promise<string> {
     const agent: Agent | undefined = this.getAgentByName(agentName);
     if (agent) {
       this.logger.log(`Creating new invitation for agent: ${agentName}`);
@@ -264,21 +288,21 @@ export class CredoService {
         const invitationUrl = outOfBandRecord.outOfBandInvitation.toUrl({
           domain: agent.config?.endpoints[0] ?? "https://example.org",
         });
-        const invitationUrlQRcode =
-          await this.qrCodeService.generateQrCode(invitationUrl);
+        //const invitationUrlQRcode =
+        //  await this.qrCodeService.generateQrCode(invitationUrl);
         this.logger.log(`New Invitation link created: ${invitationUrl}`);
         // Listener
         this.setupConnectionListener(agent, outOfBandRecord, () => {});
-        return {
-          invitationUrlQRcode,
-        };
+        return invitationUrl;
       } catch (error) {
         this.logger.error(`Error creating new invitation: ${error}`);
         throw error;
       }
     } else {
       this.logger.error(`Agent ${agentName} not found`);
+      return "Error";
     }
+
   }
 
   async receiveInvitation(agentName: string, invitationUrl: string) {
@@ -291,6 +315,8 @@ export class CredoService {
         this.logger.log(
           `OutOfBandRecord received: ${JSON.stringify(outOfBandRecord)}`
         );
+        // Setup listener
+        this.setupConnectionListener(agent, outOfBandRecord, () => {});
       } catch (error) {
         this.logger.error(
           `Error receiving invitation for agent ${agentName}: ${error}`
@@ -323,9 +349,16 @@ export class CredoService {
           cb();
 
           // Set up credential listener
-          console.log("setupCredentialListener");
-          setupCredentialListener(agent);
-
+          console.log('setupCredentialListener');
+          this.setupCredentialListener(agent);
+          console.log('setupDRPCListener for agent:', agent.config.label);
+          this.setupDRPCListener(agent, payload.connectionRecord);
+          // This would be the normal behaviour for an Issuer.  Only looking for Agent name for testing Alice/Faber
+          if(agent.config.label==='Faber') {
+            // Send initial workflows list
+            console.log("Sending from agent:", agent.config.label);
+            this.sendDRPCWorkflows(agent, payload.connectionRecord);
+          }
           // We exit the flow
           // process.exit(0);
         }
@@ -369,5 +402,166 @@ export class CredoService {
       });
 
     return credentialExchangeRecord;
+  }
+
+  setupCredentialListener(agent: Agent) {
+    agent.events.on<CredentialStateChangedEvent>(
+      CredentialEventTypes.CredentialStateChanged,
+      async ({ payload }) => {
+        this.logger.log(
+          `Credential state changed: ${payload.credentialRecord.id}, state: ${payload.credentialRecord.state}`,
+        );
+
+        switch (payload.credentialRecord.state) {
+          case CredentialState.OfferSent:
+            this.logger.log(`Credential offer sent to holder.`);
+            break;
+          case CredentialState.RequestReceived:
+            this.logger.log(`Credential request received from holder.`);
+            // Automatically respond to credential request if desired
+            await this.agent.credentials.acceptRequest({
+              credentialRecordId: payload.credentialRecord.id,
+            });
+            break;
+          case CredentialState.CredentialIssued: // Adjusted to match your enum
+            this.logger.log(`Credential issued to holder.`);
+            // Handle the issuance process or update state as necessary
+            break;
+          case CredentialState.Done:
+            this.logger.log(
+              `Credential ${payload.credentialRecord.id} is accepted by the wallet`,
+            );
+            // Add your custom business logic here, e.g., updating your database or notifying a service
+            break;
+          case CredentialState.Declined:
+            this.logger.log(
+              `Credential ${payload.credentialRecord.id} is rejected by the wallet`,
+            );
+            // Handle rejection if needed
+            break;
+          default:
+            this.logger.log(
+              `Unhandled credential state: ${payload.credentialRecord.state}`,
+            );
+        }
+      },
+    );
+  }
+
+  setupDRPCListener(agent: Agent, connectionRecord: ConnectionRecord) {
+    agent.events.on(
+      DrpcRequestEventTypes.DrpcRequestStateChanged,
+      async ({ payload }: DrpcRequestStateChangedEvent) => {
+        // send back a request for the default workflow to start
+        const record: DrpcRecord = payload.drpcMessageRecord;
+        const request: any = record.request;
+        const method: string = request.method;
+        console.log('\nReceived DRPC call on agent', agent.config.label, " role:", payload.drpcMessageRecord.role, " method:", method);
+        switch (method) {
+          case 'workflow_connection':
+            if(payload.drpcMessageRecord.role==='server') {
+              console.log("* Received workflow_connection");
+              // Received list of workflows
+              // Add to workflows
+              console.log("** Save workflow");
+              this.workflows.set(connectionRecord.id, request.params);
+              // Request the default
+              console.log("*** Send workflow request");
+              this.sendDRPCRequestWorkflow(agent, connectionRecord, request.params.default_workflowid);
+            }
+            else {
+              console.log("## client workflow_connection ", agent.config.label);
+            }
+            break;
+          case 'workflow_request':
+            if(payload.drpcMessageRecord.role==='client') {
+              console.log("* Received worflow_request");
+              // Workflow request with action
+              // Parser and return display
+              console.log("** Parse workflow");
+              const displayData = await this.parserService.parse(request.params.workflowid, connectionRecord.id, request.params.instanceId, '00000000-0000-0000-0000-000000000000', {});
+              console.log("*** Send workflow response");
+              await this.sendDRPCResponseWorkflow(agent, connectionRecord, request.params.workflowid, request.params.instanceId, displayData);
+            }
+            else {
+              console.log("## server workflow_request ", agent.config.label);
+            }
+            break;
+          case 'workflow_response':
+            if(payload.drpcMessageRecord.role==='client') {
+              console.log("Received workflow_response");
+              // Response to request with display
+              // Render to display
+              console.log("Workflow response display is:", request?.params?.displaydata);
+            }
+            else {
+              console.log("## client workflow_response ", agent.config.label);
+            }
+            break;
+          default:
+            console.log('\nNohandler for call ', agent.config.label, " role:", payload.drpcMessageRecord.role, " method:", method);
+        }
+      },
+    );
+  }
+
+  async sendDRPCResponseWorkflow(agent: Agent, connectionRecord: ConnectionRecord, workflowId: string, instanceId: string, displayData: any) {
+    // Send back parsed workflow display
+    await agent.modules.drpc.sendRequest(connectionRecord.id, {
+      jsonrpc: '2.0',
+      method: 'workflow_response',
+      id: '',
+      params: {
+        version: '1.0',
+        workflowid: workflowId,
+        instance: instanceId,
+        displaydata: displayData
+      },
+    });
+  }
+
+  async sendDRPCRequestWorkflow(agent: Agent, connectionRecord: ConnectionRecord, workflowId: string, instanceId?: string, actionId?: string, actionParams?: any) {
+    // First request has no instance yet
+    if (typeof instanceId !== 'undefined') {
+      instanceId = '';
+    }
+    if (typeof actionId !== 'undefined') {
+      actionId = '';
+    }
+    if (typeof actionParams !== 'undefined') {
+      actionParams = {}
+    }
+    await agent.modules.drpc.sendRequest(connectionRecord.id, {
+      jsonrpc: '2.0',
+      method: 'workflow_request',
+      id: '',
+      params: {
+        version: '1.0',
+        workflowid: workflowId,
+        instance: instanceId,
+        actionId: actionId
+      },
+    });
+  }
+
+  async sendDRPCWorkflows(agent: Agent, connectionRecord: ConnectionRecord) {
+    // Send a request to the specified connection
+    console.log("Sending initial DRPC from agent:", agent.config.label);
+    await agent.modules.drpc.sendRequest(connectionRecord.id, {
+      jsonrpc: '2.0',
+      method: 'workflow_connection',
+      id: '',
+      params: {
+        version: '1.0',
+        default_workflowid: '00000000-0000-0000-0000-000000000000',
+        workflows: [
+          {
+            workflowid: '00000000-0000-0000-0000-000000000000',
+            name: 'Weclome',
+          },
+        ],
+      },
+    });
+    return 'called sendDRPC';
   }
 }
