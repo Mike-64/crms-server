@@ -210,8 +210,8 @@ export class ConnectionsController {
   @ApiOperation({ summary: 'Create New Invitation' })
   @ApiOkResponse({ description: 'Successfully created new invitation' })
   async createNewInvitation(@Body() createInvitationDto: CreateInvitationDto) {
-    const { agentName } = createInvitationDto;
-    const invitationUrl = await this.credoService.createNewInvitation(agentName);
+    const { agentName,attachmentData } = createInvitationDto;
+    const invitationUrl = await this.credoService.createNewInvitation(agentName,attachmentData);
     return invitationUrl;
   }
 

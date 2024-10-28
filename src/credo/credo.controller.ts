@@ -12,13 +12,13 @@ export class CredoController {
 
   @Get('agent-alice')
   createAgentAlice(): string {
-    this.credoService.createAgent("Alice", "http://192.168.2.192", 9000, 4000, 5000);
+    this.credoService.createAgent("Alice", "http://localhost", 9000, 4000, 5000);
     return 'Started agent';
   }
 
   @Get('agent-faber')
   createAgentFaber(): string {
-    this.credoService.createAgent("Faber", "http://192.168.2.192", 9001, 4001, 5001);
+    this.credoService.createAgent("Faber", "http://localhost", 9001, 4001, 5001);
     return 'Started agent';
   }
   private agentId: string;
@@ -41,7 +41,7 @@ export class CredoController {
 
   @Get('invite')
   async createInvitation(): Promise<any> {
-    return await this.credoService.createNewInvitation(this.agentId);
+    return await this.credoService.createNewInvitation(this.agentId,{});
   }
 
   

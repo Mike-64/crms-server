@@ -32,6 +32,12 @@ export class CreateInvitationDto {
     example: "agent1",
   })
   agentName: string;
+
+  @ApiProperty({
+    description:"Data added to Invitation",
+    example:{id:'123',student_name:'Jason'}
+  })
+  attachmentData: any
 }
 
 class CredentialAttribute {

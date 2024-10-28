@@ -23,6 +23,7 @@ import {
   CredentialStateChangedEvent,
   CredentialEventTypes,
   CredentialState,
+  Attachment,
 } from '@credo-ts/core';
 import { HttpInboundTransport, agentDependencies } from "@credo-ts/node";
 import { AskarModule } from "@credo-ts/askar";
@@ -279,13 +280,19 @@ export class CredoService {
   }
 
   // This method will create an invitation using the legacy method according to 0434: Out-of-Band Protocol 1.1.
-  async createNewInvitation(agentName: string): Promise<string> {
+  async createNewInvitation(agentName: string, attachmentData: any): Promise<string> {
     const agent: Agent | undefined = this.getAgentByName(agentName);
     if (agent) {
       this.logger.log(`Creating new invitation for agent: ${agentName}`);
       try {
-        const outOfBandRecord = await agent.oob.createInvitation();
-        const invitationUrl = outOfBandRecord.outOfBandInvitation.toUrl({
+        const outOfBandRecord = await agent.oob.createInvitation({});
+        // console.log(outOfBandRecord.metadata.add());        
+        const attachment = new Attachment({id:"1",
+          description:"student",
+          data:{json:attachmentData}})
+        outOfBandRecord.outOfBandInvitation.addAppendedAttachment(attachment);
+        const invitation = outOfBandRecord.outOfBandInvitation;
+        const invitationUrl =  invitation.toUrl({
           domain: agent.config?.endpoints[0] ?? "https://example.org",
         });
         //const invitationUrlQRcode =
