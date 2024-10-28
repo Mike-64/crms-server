@@ -24,6 +24,7 @@ import {
   CredentialEventTypes,
   CredentialState,
   Attachment,
+  ProofExchangeRecord,
 } from '@credo-ts/core';
 import { HttpInboundTransport, agentDependencies } from "@credo-ts/node";
 import { AskarModule } from "@credo-ts/askar";
@@ -42,6 +43,7 @@ import {
   AnonCredsCredentialFormatService,
   AnonCredsModule,
   LegacyIndyCredentialFormatService,
+  RegisterCredentialDefinitionReturnStateFinished,
 } from '@credo-ts/anoncreds';
 import {
   DrpcModule,
@@ -83,6 +85,9 @@ export class CredoService {
   constructor(private readonly qrCodeService: QrcodeService, private readonly parserService: ParserService) {}
   public verifierRecord!: OpenId4VcVerifierRecord;
   private app: any;
+  public outOfBandId?: string
+  public credentialDefinition?: RegisterCredentialDefinitionReturnStateFinished
+  public anonCredsIssuerId?: string
 
   async createAgent(
     name: string,
@@ -285,13 +290,14 @@ export class CredoService {
     if (agent) {
       this.logger.log(`Creating new invitation for agent: ${agentName}`);
       try {
-        const outOfBandRecord = await agent.oob.createInvitation({});
-        // console.log(outOfBandRecord.metadata.add());        
+        const outOfBandRecord = await agent.oob.createInvitation();
+        //outOfBandRecord.metadata.add("data",{"id":"345","name":"Mike"});        
         const attachment = new Attachment({id:"1",
           description:"student",
           data:{json:attachmentData}})
         outOfBandRecord.outOfBandInvitation.addAppendedAttachment(attachment);
         const invitation = outOfBandRecord.outOfBandInvitation;
+        console.log(outOfBandRecord);
         const invitationUrl =  invitation.toUrl({
           domain: agent.config?.endpoints[0] ?? "https://example.org",
         });
@@ -455,6 +461,71 @@ export class CredoService {
     );
   }
 
+  private async getConnectionRecord() {
+    if (!this.outOfBandId) {
+      throw Error(`\nNo connectionRecord has been created from invitation\n`)
+    }
+
+    const [connection] = await this.agent.connections.findAllByOutOfBandId(this.outOfBandId)
+
+    if (!connection) {
+      throw Error(`\nNo connectionRecord ID has been set yet\n`)
+    }
+
+    return connection
+  }
+
+  private async printProofFlow(print: string) {
+    await new Promise((f) => setTimeout(f, 2000))
+  }
+  private async newProofAttribute() {
+    await this.printProofFlow(`Creating new proof attribute for 'name' ...\n`)
+    const proofAttribute = {
+      name: {
+        name: 'name',
+        restrictions: [
+          {
+            cred_def_id: this.credentialDefinition?.credentialDefinitionId,
+          },
+        ],
+      },
+    }
+
+    return proofAttribute
+  }
+
+  public async sendProofRequest() {
+    const connectionRecord = await this.getConnectionRecord()
+    const proofAttribute = await this.newProofAttribute()
+    await this.printProofFlow('\nRequesting proof...\n')
+
+    const proofExchangeRecord = await this.agent.proofs.requestProof({
+      protocolVersion: 'v2',
+      connectionId: connectionRecord.id,
+      proofFormats: {
+        anoncreds: {
+          name: 'proof-request',
+          version: '1.0',
+          requested_attributes: proofAttribute,
+        },
+      },
+    })
+    
+    return proofExchangeRecord
+  }
+
+  public async acceptProofRequest(proofRecord: ProofExchangeRecord) {
+    const requestedCredentials = await this.agent.proofs.selectCredentialsForRequest({
+      proofRecordId: proofRecord.id,
+    })
+
+    await this.agent.proofs.acceptRequest({
+      proofRecordId: proofRecord.id,
+      proofFormats: requestedCredentials.proofFormats,
+    })
+    console.log('\nProof request accepted!\n')
+  }
+  
   setupDRPCListener(agent: Agent, connectionRecord: ConnectionRecord) {
     agent.events.on(
       DrpcRequestEventTypes.DrpcRequestStateChanged,

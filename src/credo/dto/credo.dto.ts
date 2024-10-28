@@ -113,6 +113,13 @@ export class CreateAgentDto {
     example: 2000,
   })
   oid4vcPort: number;
+
+  @IsInt()
+  @ApiProperty({
+    description: "Port number to listen on OID4VC Service",
+    example:3000,
+  })
+  oid4vcListen: number;
 }
 
 export class SetupConnectionListenerDto {
