@@ -28,6 +28,11 @@ import {
   Repository,
   StorageUpdateService,
   OutOfBandRepository,
+  ConnectionService,
+  ConnectionRepository,
+  AgentContext,
+  BaseLogger,
+  DidRepository,
 } from '@credo-ts/core';
 import { HttpInboundTransport, agentDependencies } from "@credo-ts/node";
 import { AskarModule } from "@credo-ts/askar";
@@ -361,7 +366,8 @@ export class CredoService {
             `Connection for out-of-band id ${outOfBandRecord.id} completed.`
           );
           payload.connectionRecord.metadata.set("id",this.metadataRecord.get(outOfBandRecord.id))
-          console.log(payload.connectionRecord.metadata.data);
+          const connectionService = new ConnectionService(new ConsoleLogger(LogLevel.info),agent.context.dependencyManager.resolve(ConnectionRepository),agent.context.dependencyManager.resolve(DidRepository),agent.events);
+          connectionService.update(agent.context,payload.connectionRecord);
           // Custom business logic can be included here
           // In this example we can send a basic message to the connection, but
           // anything is possible
