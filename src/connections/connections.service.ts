@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { QueryDto } from './dto/connections.dto';
 import { CredoService } from 'src/credo/credo.service';
-import { ConnectionRecord, ConnectionType } from '@credo-ts/core';
+import { ConnectionRecord, ConnectionType, CredoError, RecordNotFoundError } from '@credo-ts/core';
 import { applyFilter, applySort } from 'src/common/utils/filter-sort.utils';
 import { cursorPaginate } from 'src/common/utils/pagination-cursor.utils';
+import { error } from 'console';
 
 @Injectable()
 export class ConnectionsService {
@@ -43,6 +44,20 @@ export class ConnectionsService {
     } catch (error) {
       this.logger.error(`Failed to retrieve connections.`);
       throw error;
+    }
+  }
+
+  async findByAgent(agentName:string):Promise<any>{
+    try{
+      this.logger.log(`Retrieving Connection by Name:${agentName}`);
+      const agent = await this.credoService.getAgentByName(agentName);
+      if(!agent){
+        this.logger.error(`Agent ${agentName} not found`)
+      }
+      const connections:any = agent!.connections.getAll();
+      return connections
+    }catch(error){
+      this.logger.error('Faild to fetch connections by Agent');
     }
   }
 

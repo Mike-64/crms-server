@@ -25,6 +25,9 @@ import {
   CredentialState,
   Attachment,
   ProofExchangeRecord,
+  Repository,
+  StorageUpdateService,
+  OutOfBandRepository,
 } from '@credo-ts/core';
 import { HttpInboundTransport, agentDependencies } from "@credo-ts/node";
 import { AskarModule } from "@credo-ts/askar";
@@ -88,6 +91,7 @@ export class CredoService {
   public outOfBandId?: string
   public credentialDefinition?: RegisterCredentialDefinitionReturnStateFinished
   public anonCredsIssuerId?: string
+  public metadataRecord:Map<string,any> = new Map();
 
   async createAgent(
     name: string,
@@ -115,6 +119,7 @@ export class CredoService {
     };
     const verifierRouter = Router();
     const issuerRouter = Router();
+
 
     console.log("Create agent - create the agent");
     this.agent = new Agent({
@@ -291,11 +296,11 @@ export class CredoService {
       this.logger.log(`Creating new invitation for agent: ${agentName}`);
       try {
         const outOfBandRecord = await agent.oob.createInvitation();
-        //outOfBandRecord.metadata.add("data",{"id":"345","name":"Mike"});        
         const attachment = new Attachment({id:"1",
           description:"student",
           data:{json:attachmentData}})
-        outOfBandRecord.outOfBandInvitation.addAppendedAttachment(attachment);
+          outOfBandRecord.outOfBandInvitation.addAppendedAttachment(attachment);
+          this.metadataRecord.set(outOfBandRecord.id,attachmentData)        
         const invitation = outOfBandRecord.outOfBandInvitation;
         console.log(outOfBandRecord);
         const invitationUrl =  invitation.toUrl({
@@ -355,7 +360,8 @@ export class CredoService {
           this.logger.log(
             `Connection for out-of-band id ${outOfBandRecord.id} completed.`
           );
-
+          payload.connectionRecord.metadata.set("id",this.metadataRecord.get(outOfBandRecord.id))
+          console.log(payload.connectionRecord.metadata.data);
           // Custom business logic can be included here
           // In this example we can send a basic message to the connection, but
           // anything is possible
@@ -390,10 +396,12 @@ export class CredoService {
   async issueCredential(
     connectionId: string,
     credentialDefinitionId: string,
-    attributes: any
+    attributes: any,
+    agentName:string
   ) {
+    const agent = this.getAgentByName(agentName);
     const [connectionRecord] =
-      await this.agent.connections.findAllByOutOfBandId(connectionId);
+      await agent!.connections.findAllByOutOfBandId(connectionId);
 
     if (!connectionRecord) {
       throw new Error(
@@ -403,7 +411,7 @@ export class CredoService {
 
     console.log(attributes, "attributesattributesattributes");
     const credentialExchangeRecord =
-      await this.agent.credentials.offerCredential({
+      await agent!.credentials.offerCredential({
         connectionId: connectionRecord.id,
         credentialFormats: {
           anoncreds: {
@@ -494,12 +502,13 @@ export class CredoService {
     return proofAttribute
   }
 
-  public async sendProofRequest() {
+  public async sendProofRequest(agentName:string) {
+    const agent = await this.getAgentByName(agentName);
     const connectionRecord = await this.getConnectionRecord()
     const proofAttribute = await this.newProofAttribute()
     await this.printProofFlow('\nRequesting proof...\n')
 
-    const proofExchangeRecord = await this.agent.proofs.requestProof({
+    const proofExchangeRecord = await agent!.proofs.requestProof({
       protocolVersion: 'v2',
       connectionId: connectionRecord.id,
       proofFormats: {
@@ -514,12 +523,14 @@ export class CredoService {
     return proofExchangeRecord
   }
 
-  public async acceptProofRequest(proofRecord: ProofExchangeRecord) {
-    const requestedCredentials = await this.agent.proofs.selectCredentialsForRequest({
+  public async acceptProofRequest(proofRecord: ProofExchangeRecord, agentName:string) {
+
+    const agent = this.getAgentByName(agentName);
+    const requestedCredentials = await agent!.proofs.selectCredentialsForRequest({
       proofRecordId: proofRecord.id,
     })
 
-    await this.agent.proofs.acceptRequest({
+    await agent!.proofs.acceptRequest({
       proofRecordId: proofRecord.id,
       proofFormats: requestedCredentials.proofFormats,
     })

@@ -3,12 +3,14 @@ import {
   Controller,
   Delete,
   Get,
+  NotFoundException,
   Param,
   Post,
   Query,
 } from '@nestjs/common';
 import { ConnectionsService } from './connections.service';
 import {
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiQuery,
@@ -70,13 +72,25 @@ export class ConnectionsController {
   }
 
   /**
+   * Retrieve connections by Agent.
+   */
+  @Get('/agent/:agentName')
+  @ApiOperation({ summary: 'Retrieve connections by Agent' })
+  @ApiOkResponse({ description: 'Successfully retrieved connections by state' })
+  findByAgent(@Param('agentName') agentName:string){
+    return this.connectionsService.findByAgent(agentName)
+  }
+
+  /**
    * Retrieve connections by state.
    */
   @Get('/state/:state')
   @ApiOperation({ summary: 'Retrieve connections by state' })
   @ApiOkResponse({ description: 'Successfully retrieved connections by state' })
+  @ApiNotFoundResponse({description:"Agent not found"})
   findByState(@Param('state') state: string) {
     return this.connectionsService.findAllByQuery({ state });
+    
   }
 
   /**
@@ -243,20 +257,19 @@ export class ConnectionsController {
     await this.credoService.receiveInvitation(agentName, invitationUrl);
   }
 
-  /**
-   * Issue credential.
-   */
-  @Post('issue-credential')
-  @ApiOperation({ summary: 'Issue Credential' })
-  @ApiOkResponse({ description: 'Successfully issued credential' })
-  async issueCredential(@Body() issueCredentialDto: IssueCredentialDto) {
-    const credentialExchangeRecord = await this.credoService.issueCredential(
-      issueCredentialDto.connectionId,
-      issueCredentialDto.credentialDefinitionId,
-      issueCredentialDto.attributes,
-    );
-    return { credentialExchangeRecord };
-  }
+  
+  // @Post('issue-credential')
+  // @ApiOperation({ summary: 'Issue Credential' })
+  // @ApiOkResponse({ description: 'Successfully issued credential' })
+  // async issueCredential(@Body() issueCredentialDto: IssueCredentialDto) {
+  //   const credentialExchangeRecord = await this.credoService.issueCredential(
+  //     issueCredentialDto.connectionId,
+  //     issueCredentialDto.credentialDefinitionId,
+  //     issueCredentialDto.attributes,
+  //     ""
+  //   );
+  //   return { credentialExchangeRecord };
+  // }
 
   /**
    * Create agent.

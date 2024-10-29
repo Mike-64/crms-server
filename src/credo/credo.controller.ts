@@ -1,12 +1,12 @@
-import { Body, Controller, Get, Logger, Post } from '@nestjs/common';
+import { Body, Controller, Get, Logger, Post, Query } from '@nestjs/common';
 import { CredoService } from './credo.service';
-import { ApiCreatedResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiCreatedResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { API_VERSION } from 'src/constants';
 import { CreateAgentDto, IssueCredentialDto } from './dto/credo.dto';
-import { CredentialExchangeRecord, ProofExchangeRecord } from '@credo-ts/core';
+import { CredentialExchangeRecord, ProofExchangeRecord} from '@credo-ts/core';
 
 @Controller(`${API_VERSION}/credo`)
-@ApiTags('Credo')
+
 export class CredoController {
   private readonly logger = new Logger(CredoController.name);
   constructor(private readonly credoService: CredoService) {}
@@ -23,8 +23,9 @@ export class CredoController {
     return 'Started agent';
   }
   private agentId: string;
-
-  @Post('start')
+  
+  @ApiTags("Agent")
+  @Post('Initialize')
   async startAgent(@Body() createAgentDto: CreateAgentDto): Promise<string> {
     
     
@@ -40,27 +41,36 @@ export class CredoController {
     // startAgent(createAgentDto);
   }
 
+  /**
+   * Issue credential.
+   */
   @ApiTags("Credentials")
   @Post('issue-Credential')
   @ApiOperation({summary:"Issue Anon-Cred Credentials"})
   @ApiCreatedResponse({description:"Credential Sent successfully"})
-  async issueCredentials(@Body() issueCredentialDto:IssueCredentialDto){
+  @ApiQuery({ name: 'agentName', required: true, type: String })
+  async issueCredentials(@Body() issueCredentialDto:IssueCredentialDto, @Query('agentName') agentName:string){
     const{connectionId, credentialDefinitionId, attributes} = issueCredentialDto;
-    const credentialExchangeRecord = this.credoService.issueCredential(connectionId,credentialDefinitionId,attributes)
+    const credentialExchangeRecord = this.credoService.issueCredential(connectionId,credentialDefinitionId,attributes,agentName)
     return credentialExchangeRecord;
   }
   
   @ApiTags("Verification")
   @Post('send-proof-request')
-  async sendProofRequest(){
-    await this.credoService.sendProofRequest()
+  @ApiOperation({summary:"Create Proof Request"})
+  @ApiCreatedResponse({description:"Proof Request Sent successfully"})
+  @ApiQuery({ name: 'agentName', required: true, type: String })
+  async sendProofRequest(@Query('agentName') agentName:string){
+    await this.credoService.sendProofRequest(agentName)
     return "Proof Request Sent"
   }
   
   @ApiTags("Verification")
   @Post('accept-proof-request')
-  async acceptProofRequest(@Body() proofExchangeRecord:ProofExchangeRecord){
-    await this.credoService.acceptProofRequest(proofExchangeRecord)
+  @ApiOperation({summary:"Accept Proof Request"})
+  @ApiQuery({ name: 'agentName', required: true, type: String })
+  async acceptProofRequest(@Body() proofExchangeRecord:ProofExchangeRecord,@Query('agentName') agentName:string){
+    await this.credoService.acceptProofRequest(proofExchangeRecord,agentName)
     return "Proof Request Accepted"
   }
   
