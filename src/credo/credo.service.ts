@@ -365,7 +365,7 @@ export class CredoService {
           this.logger.log(
             `Connection for out-of-band id ${outOfBandRecord.id} completed.`
           );
-          payload.connectionRecord.metadata.set("id",this.metadataRecord.get(outOfBandRecord.id))
+          payload.connectionRecord.metadata.set("StudentRecord",this.metadataRecord.get(outOfBandRecord.id))
           const connectionService = new ConnectionService(new ConsoleLogger(LogLevel.info),agent.context.dependencyManager.resolve(ConnectionRepository),agent.context.dependencyManager.resolve(DidRepository),agent.events);
           connectionService.update(agent.context,payload.connectionRecord);
           // Custom business logic can be included here
