@@ -33,6 +33,7 @@ import {
   AgentContext,
   BaseLogger,
   DidRepository,
+  CredentialExchangeRecord,
 } from '@credo-ts/core';
 import { HttpInboundTransport, agentDependencies } from "@credo-ts/node";
 import { AskarModule } from "@credo-ts/askar";
@@ -431,6 +432,13 @@ export class CredoService {
     return credentialExchangeRecord;
   }
 
+  public async acceptCredentialOffer(credentialRecord: CredentialExchangeRecord, agentName:string) {
+    const agent = this.getAgentByName(agentName)
+    await agent!.credentials.acceptOffer({
+      credentialRecordId: credentialRecord.id,
+    })
+  }
+  
   setupCredentialListener(agent: Agent) {
     agent.events.on<CredentialStateChangedEvent>(
       CredentialEventTypes.CredentialStateChanged,

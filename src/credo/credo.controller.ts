@@ -16,7 +16,7 @@ export class CredoController {
     this.credoService.createAgent("Alice", "http://localhost", 9000, 4000, 5000);
     return 'Started agent';
   }
-
+  
   @Get('agent-faber')
   createAgentFaber(): string {
     this.credoService.createAgent("Faber", "http://localhost", 9001, 4001, 5001);
@@ -55,6 +55,14 @@ export class CredoController {
     return credentialExchangeRecord;
   }
   
+  @ApiTags("Credentials")
+  @Post('accept-credential-offer')
+  @ApiOperation({summary:"Accept Anon-Cred Credentials"})
+  @ApiCreatedResponse({description:"Credential accepted successfully"})
+  async acceptCredentials(@Body() credentialExchangeRecord:CredentialExchangeRecord, @Query('agentName') agentName:string){
+    await this.credoService.acceptCredentialOffer(credentialExchangeRecord, agentName)
+  }
+
   @ApiTags("Verification")
   @Post('send-proof-request')
   @ApiOperation({summary:"Create Proof Request"})

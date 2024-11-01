@@ -14,6 +14,8 @@ import { Instance } from './tables/instance.entity';
 import { Oid4vcController } from './oid4vc/oid4vc.controller';
 import { Oid4vcModule } from './oid4vc/oid4vc.module';
 import { Oid4vcService } from "./oid4vc/oid4vc.service";
+import { JobsModule } from './jobs/jobs.module';
+import { Job } from './jobs/entities/job.entity';
 
 @Module({
   imports: [
@@ -30,12 +32,13 @@ import { Oid4vcService } from "./oid4vc/oid4vc.service";
       port: 5432,
       username: 'postgres',
       password: 'root',
-      entities: [Templates,Instance],
+      entities: [Templates,Instance,Job],
       database: 'postgres',
       synchronize: true,
       logging: true,
     }),
     Oid4vcModule,
+    JobsModule,
   ],
   controllers: [AppController, Oid4vcController],
   providers: [AppService, Oid4vcService],

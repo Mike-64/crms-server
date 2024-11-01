@@ -7,7 +7,6 @@ import {
 } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { Type } from "class-transformer";
-import { OpenId4VciResolvedCredentialOffer } from "@credo-ts/openid4vc";
 
 export class ReceiveInvitationDto {
   @IsString()
