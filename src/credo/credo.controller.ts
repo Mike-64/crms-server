@@ -10,36 +10,21 @@ import { CredentialExchangeRecord, ProofExchangeRecord} from '@credo-ts/core';
 export class CredoController {
   private readonly logger = new Logger(CredoController.name);
   constructor(private readonly credoService: CredoService) {}
-
-  @Get('agent-alice')
-  createAgentAlice(): string {
-    this.credoService.createAgent("Alice", "http://localhost", 9000, 4000, 5000);
-    return 'Started agent';
-  }
-  
-  @Get('agent-faber')
-  createAgentFaber(): string {
-    this.credoService.createAgent("Faber", "http://localhost", 9001, 4001, 5001);
-    return 'Started agent';
-  }
-  private agentId: string;
-  
-  @ApiTags("Agent")
-  @Post('Initialize')
-  async startAgent(@Body() createAgentDto: CreateAgentDto): Promise<string> {
-    
-    
-    await this.credoService.createAgent(
-      createAgentDto.name,
-      createAgentDto.endpoint,
-      createAgentDto.port,
-      createAgentDto.oid4vcPort,
-      createAgentDto.oid4vcListen
-    )
-    this.agentId = createAgentDto.name;
-    return 'Agent started';
-    // startAgent(createAgentDto);
-  }
+ 
+  // @ApiTags("Agent")
+  // @Post('Initialize')
+  // async startAgent(@Body() createAgentDto: CreateAgentDto): Promise<string> {
+  //   await this.credoService.createAgent(
+  //     createAgentDto.name,
+  //     createAgentDto.endpoint,
+  //     createAgentDto.port,
+  //     createAgentDto.oid4vcPort,
+  //     createAgentDto.oid4vcListen
+  //   )
+  //   this.agentId = createAgentDto.name;
+  //   return 'Agent started';
+  //   // startAgent(createAgentDto);
+  // }
 
   /**
    * Issue credential.
