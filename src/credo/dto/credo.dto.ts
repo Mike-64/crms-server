@@ -7,7 +7,6 @@ import {
 } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { Type } from "class-transformer";
-import { OpenId4VciResolvedCredentialOffer } from "@credo-ts/openid4vc";
 
 export class ReceiveInvitationDto {
   @IsString()
@@ -32,6 +31,12 @@ export class CreateInvitationDto {
     example: "agent1",
   })
   agentName: string;
+
+  @ApiProperty({
+    description:"Data added to Invitation",
+    example:{id:'123',student_name:'Jason'}
+  })
+  attachmentData: any
 }
 
 class CredentialAttribute {
@@ -107,6 +112,13 @@ export class CreateAgentDto {
     example: 2000,
   })
   oid4vcPort: number;
+
+  @IsInt()
+  @ApiProperty({
+    description: "Port number to listen on OID4VC Service",
+    example:3000,
+  })
+  oid4vcListen: number;
 }
 
 export class SetupConnectionListenerDto {

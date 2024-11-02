@@ -23,6 +23,17 @@ import {
   CredentialStateChangedEvent,
   CredentialEventTypes,
   CredentialState,
+  Attachment,
+  ProofExchangeRecord,
+  Repository,
+  StorageUpdateService,
+  OutOfBandRepository,
+  ConnectionService,
+  ConnectionRepository,
+  AgentContext,
+  BaseLogger,
+  DidRepository,
+  CredentialExchangeRecord,
 } from '@credo-ts/core';
 import { HttpInboundTransport, agentDependencies } from "@credo-ts/node";
 import { AskarModule } from "@credo-ts/askar";
@@ -41,6 +52,7 @@ import {
   AnonCredsCredentialFormatService,
   AnonCredsModule,
   LegacyIndyCredentialFormatService,
+  RegisterCredentialDefinitionReturnStateFinished,
 } from '@credo-ts/anoncreds';
 import {
   DrpcModule,
@@ -82,6 +94,10 @@ export class CredoService {
   constructor(private readonly qrCodeService: QrcodeService, private readonly parserService: ParserService) {}
   public verifierRecord!: OpenId4VcVerifierRecord;
   private app: any;
+  public outOfBandId?: string
+  public credentialDefinition?: RegisterCredentialDefinitionReturnStateFinished
+  public anonCredsIssuerId?: string
+  public metadataRecord:Map<string,any> = new Map();
 
   async createAgent(
     name: string,
@@ -109,6 +125,7 @@ export class CredoService {
     };
     const verifierRouter = Router();
     const issuerRouter = Router();
+
 
     console.log("Create agent - create the agent");
     this.agent = new Agent({
@@ -279,13 +296,20 @@ export class CredoService {
   }
 
   // This method will create an invitation using the legacy method according to 0434: Out-of-Band Protocol 1.1.
-  async createNewInvitation(agentName: string): Promise<string> {
+  async createNewInvitation(agentName: string, attachmentData: any): Promise<string> {
     const agent: Agent | undefined = this.getAgentByName(agentName);
     if (agent) {
       this.logger.log(`Creating new invitation for agent: ${agentName}`);
       try {
         const outOfBandRecord = await agent.oob.createInvitation();
-        const invitationUrl = outOfBandRecord.outOfBandInvitation.toUrl({
+        const attachment = new Attachment({id:"1",
+          description:"student",
+          data:{json:attachmentData}})
+          outOfBandRecord.outOfBandInvitation.addAppendedAttachment(attachment);
+          this.metadataRecord.set(outOfBandRecord.id,attachmentData)        
+        const invitation = outOfBandRecord.outOfBandInvitation;
+        console.log(outOfBandRecord);
+        const invitationUrl =  invitation.toUrl({
           domain: agent.config?.endpoints[0] ?? "https://example.org",
         });
         //const invitationUrlQRcode =
@@ -342,7 +366,9 @@ export class CredoService {
           this.logger.log(
             `Connection for out-of-band id ${outOfBandRecord.id} completed.`
           );
-
+          payload.connectionRecord.metadata.set("StudentRecord",this.metadataRecord.get(outOfBandRecord.id))
+          const connectionService = new ConnectionService(new ConsoleLogger(LogLevel.info),agent.context.dependencyManager.resolve(ConnectionRepository),agent.context.dependencyManager.resolve(DidRepository),agent.events);
+          connectionService.update(agent.context,payload.connectionRecord);
           // Custom business logic can be included here
           // In this example we can send a basic message to the connection, but
           // anything is possible
@@ -377,10 +403,12 @@ export class CredoService {
   async issueCredential(
     connectionId: string,
     credentialDefinitionId: string,
-    attributes: any
+    attributes: any,
+    agentName:string
   ) {
+    const agent = this.getAgentByName(agentName);
     const [connectionRecord] =
-      await this.agent.connections.findAllByOutOfBandId(connectionId);
+      await agent!.connections.findAllByOutOfBandId(connectionId);
 
     if (!connectionRecord) {
       throw new Error(
@@ -390,7 +418,7 @@ export class CredoService {
 
     console.log(attributes, "attributesattributesattributes");
     const credentialExchangeRecord =
-      await this.agent.credentials.offerCredential({
+      await agent!.credentials.offerCredential({
         connectionId: connectionRecord.id,
         credentialFormats: {
           anoncreds: {
@@ -404,6 +432,13 @@ export class CredoService {
     return credentialExchangeRecord;
   }
 
+  public async acceptCredentialOffer(credentialRecord: CredentialExchangeRecord, agentName:string) {
+    const agent = this.getAgentByName(agentName)
+    await agent!.credentials.acceptOffer({
+      credentialRecordId: credentialRecord.id,
+    })
+  }
+  
   setupCredentialListener(agent: Agent) {
     agent.events.on<CredentialStateChangedEvent>(
       CredentialEventTypes.CredentialStateChanged,
@@ -448,6 +483,74 @@ export class CredoService {
     );
   }
 
+  private async getConnectionRecord() {
+    if (!this.outOfBandId) {
+      throw Error(`\nNo connectionRecord has been created from invitation\n`)
+    }
+
+    const [connection] = await this.agent.connections.findAllByOutOfBandId(this.outOfBandId)
+
+    if (!connection) {
+      throw Error(`\nNo connectionRecord ID has been set yet\n`)
+    }
+
+    return connection
+  }
+
+  private async printProofFlow(print: string) {
+    await new Promise((f) => setTimeout(f, 2000))
+  }
+  private async newProofAttribute() {
+    await this.printProofFlow(`Creating new proof attribute for 'name' ...\n`)
+    const proofAttribute = {
+      name: {
+        name: 'name',
+        restrictions: [
+          {
+            cred_def_id: this.credentialDefinition?.credentialDefinitionId,
+          },
+        ],
+      },
+    }
+
+    return proofAttribute
+  }
+
+  public async sendProofRequest(agentName:string) {
+    const agent = await this.getAgentByName(agentName);
+    const connectionRecord = await this.getConnectionRecord()
+    const proofAttribute = await this.newProofAttribute()
+    await this.printProofFlow('\nRequesting proof...\n')
+
+    const proofExchangeRecord = await agent!.proofs.requestProof({
+      protocolVersion: 'v2',
+      connectionId: connectionRecord.id,
+      proofFormats: {
+        anoncreds: {
+          name: 'proof-request',
+          version: '1.0',
+          requested_attributes: proofAttribute,
+        },
+      },
+    })
+    
+    return proofExchangeRecord
+  }
+
+  public async acceptProofRequest(proofRecord: ProofExchangeRecord, agentName:string) {
+
+    const agent = this.getAgentByName(agentName);
+    const requestedCredentials = await agent!.proofs.selectCredentialsForRequest({
+      proofRecordId: proofRecord.id,
+    })
+
+    await agent!.proofs.acceptRequest({
+      proofRecordId: proofRecord.id,
+      proofFormats: requestedCredentials.proofFormats,
+    })
+    console.log('\nProof request accepted!\n')
+  }
+  
   setupDRPCListener(agent: Agent, connectionRecord: ConnectionRecord) {
     agent.events.on(
       DrpcRequestEventTypes.DrpcRequestStateChanged,

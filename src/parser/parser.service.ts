@@ -40,7 +40,7 @@ export class ParserService {
 
   getStateAction(_template: any, _stateId: string, _actionId: string): any {
     var action = {}
-    for(var i = 0; i < _template.states.length; i++) {
+    for(var i = 0; i < _template?.states.length; i++) {
       console.log("Get State - state=", _template.states[i].stateId);
       if(_template.states[i].stateId === _stateId) {
         for(var j = 0; j < _template.states[i].transitions.length; j++) {
@@ -58,7 +58,7 @@ export class ParserService {
 
   getStateDisplay(_template: any, _stateId: string): any {
     var display = {}
-    for(var i = 0; i < _template.states.length; i++) {
+    for(var i = 0; i < _template?.states.length; i++) {
       console.log("Get State - state=", _template.states[i].stateId);
       if(_template.states[i].stateId === _stateId) {
         display = _template.states[i].displayData;
