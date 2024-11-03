@@ -372,7 +372,7 @@ export class CredoService {
           `OutOfBandRecord received: ${JSON.stringify(outOfBandRecord)}`
         );
         // Setup listener
-        this.setupConnectionListener(agent, outOfBandRecord, () => {});
+        //this.setupConnectionListener(agent, outOfBandRecord, () => {});
       } catch (error) {
         this.logger.error(
           `Error receiving invitation for agent ${agentName}: ${error}`
@@ -417,16 +417,11 @@ export class CredoService {
           // Set up credential listener
           console.log("setupCredentialListener");
           this.setupCredentialListener(agent);
-          console.log("setupDRPCListener for agent:", agent.config.label);
+          console.log("* setupDRPCListener for agent:", agent.config.label);
           this.setupDRPCListener(agent, payload.connectionRecord);
-          // This would be the normal behaviour for an Issuer.  Only looking for Agent name for testing Alice/Faber
-          if (agent.config.label === "Faber") {
-            // Send initial workflows list
-            console.log("Sending from agent:", agent.config.label);
-            this.sendDRPCWorkflows(agent, payload.connectionRecord);
-          }
-          // We exit the flow
-          // process.exit(0);
+          // Send initial workflows list
+          console.log("Sending from agent:", agent.config.label);
+          this.sendDRPCWorkflows(agent, payload.connectionRecord);
         }
       }
     );
@@ -607,7 +602,7 @@ export class CredoService {
         const request: any = record.request;
         const method: string = request.method;
         console.log(
-          "\nReceived DRPC call on agent",
+          "* Received DRPC call on agent",
           agent.config.label,
           " role:",
           payload.drpcMessageRecord.role,
@@ -615,26 +610,26 @@ export class CredoService {
           method
         );
         switch (method) {
-          case "workflow_connection":
-            if (payload.drpcMessageRecord.role === "server") {
-              console.log("* Received workflow_connection");
-              // Received list of workflows
-              // Add to workflows
-              console.log("** Save workflow");
-              this.workflows.set(connectionRecord.id, request.params);
-              // Request the default
-              console.log("*** Send workflow request");
-              this.sendDRPCRequestWorkflow(
-                agent,
-                connectionRecord,
-                request.params.default_workflowid
-              );
-            } else {
-              console.log("## client workflow_connection ", agent.config.label);
-            }
-            break;
+          // case "workflow_connection":
+          //   if (payload.drpcMessageRecord.role === "server") {
+          //     console.log("* Received workflow_connection");
+          //     // Received list of workflows
+          //     // Add to workflows
+          //     console.log("** Save workflow");
+          //     this.workflows.set(connectionRecord.id, request.params);
+          //     // Request the default
+          //     console.log("*** Send workflow request");
+          //     this.sendDRPCRequestWorkflow(
+          //       agent,
+          //       connectionRecord,
+          //       request.params.default_workflowid
+          //     );
+          //   } else {
+          //     console.log("## client workflow_connection ", agent.config.label);
+          //   }
+          //   break;
           case "workflow_request":
-            if (payload.drpcMessageRecord.role === "client") {
+            if (payload.drpcMessageRecord.role === "server") {
               console.log("* Received worflow_request");
               // Workflow request with action
               // Parser and return display
@@ -650,27 +645,25 @@ export class CredoService {
               await this.sendDRPCResponseWorkflow(
                 agent,
                 connectionRecord,
-                request.params.workflowid,
-                request.params.instanceId,
-                displayData
+                displayData,
               );
             } else {
               console.log("## server workflow_request ", agent.config.label);
             }
             break;
-          case "workflow_response":
-            if (payload.drpcMessageRecord.role === "client") {
-              console.log("Received workflow_response");
-              // Response to request with display
-              // Render to display
-              console.log(
-                "Workflow response display is:",
-                request?.params?.displaydata
-              );
-            } else {
-              console.log("## client workflow_response ", agent.config.label);
-            }
-            break;
+          // case "workflow_response":
+          //   if (payload.drpcMessageRecord.role === "client") {
+          //     console.log("Received workflow_response");
+          //     // Response to request with display
+          //     // Render to display
+          //     console.log(
+          //       "Workflow response display is:",
+          //       request?.params?.displaydata
+          //     );
+          //   } else {
+          //     console.log("## client workflow_response ", agent.config.label);
+          //   }
+          //   break;
           case "issue_oid4vc":
             if (payload.drpcMessageRecord.role === "client") {
               const displayData = await this.parserService.parse(
@@ -823,8 +816,6 @@ export class CredoService {
   async sendDRPCResponseWorkflow(
     agent: Agent,
     connectionRecord: ConnectionRecord,
-    workflowId: string,
-    instanceId: string,
     displayData: any
   ) {
     // Send back parsed workflow display
@@ -834,8 +825,6 @@ export class CredoService {
       id: "",
       params: {
         version: "1.0",
-        workflowid: workflowId,
-        instance: instanceId,
         displaydata: displayData,
       },
     });
