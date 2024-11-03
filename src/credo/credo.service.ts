@@ -81,6 +81,28 @@ import {
   setupCredentialListener,
 } from "src/common/utils/oid4vcSupport";
 import { Oid4vcService } from "src/oid4vc/oid4vc.service";
+const universityDegreePresentationDefinition = {
+  id: "UniversityDegreeCredential",
+  purpose:
+    "Present your UniversityDegreeCredential to verify your education level.",
+  input_descriptors: [
+    {
+      id: "UniversityDegreeCredentialDescriptor",
+      constraints: {
+        fields: [
+          {
+            // Works for JSON-LD, SD-JWT and JWT
+            path: ["$.vc.type.*", "$.vct", "$.type"],
+            filter: {
+              type: "string",
+              pattern: "UniversityDegree",
+            },
+          },
+        ],
+      },
+    },
+  ],
+};
 @Injectable()
 export class CredoService {
   private readonly logger = new Logger(CredoService.name);
@@ -677,6 +699,27 @@ export class CredoService {
               );
             } else {
               console.log("## server issue_oid4vc ", agent.config.label);
+            }
+            break;
+          case "verify_oid4vc":
+            if (payload.drpcMessageRecord.role === "client") {
+              const displayData = await this.parserService.parse(
+                request.params.workflowid,
+                connectionRecord.id,
+                request.params.instanceId,
+                "00000000-0000-0000-0000-000000000000",
+                {}
+              );
+              const credentialOffer = await this.createOIDProofRequest(
+                agent,
+                universityDegreePresentationDefinition
+              );
+              console.log(
+                "## server verify_oid4vc - credentialOffer",
+                credentialOffer
+              );
+            } else {
+              console.log("## server verify_oid4vc ", agent.config.label);
             }
             break;
           default:
