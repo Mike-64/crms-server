@@ -110,6 +110,8 @@ export class ParserService {
   ): Promise <any> {
     let currentState = '00000000-0000-0000-0000-000000000000';
     let newState = '';
+    let currentWorkflow = '00000000-0000-0000-0000-000000000000';
+    let newWorkflow = '';
     // Find the instance
     const instanceDto: InstanceDto = new InstanceDto();
     instanceDto.templateId = _templateId;
@@ -145,13 +147,19 @@ export class ParserService {
     if (!(Object.keys(transition).length === 0 && transition.constructor === Object)) {
       console.log("Parser get action type=", transition?.type);
       switch (transition.type) {
-        case 'workflow':
+        case 'state':
           newState = eval(transition['condition'])
             ? transition.value
             : currentState;
           break;
+        case 'worfklow':
+          newWorkflow = eval(transition['condition'])
+            ? transition.value
+            : _templateId;
+          break;
         default:
           newState = currentState;
+          newWorkflow = currentWorkflow;
       }
       // If transition save the new state in the instance
       instance.state_id = newState;
@@ -160,7 +168,13 @@ export class ParserService {
     // Return display for state
     console.log("Parser get display data");
     const display = this.getStateDisplay(template?.template_json, currentState);
-    console.log("Parser display data =", display);
-    return display;
+    let response = {
+      display: display,
+      instanceId: instance.instance_id,
+      workflowId: _templateId
+
+    }
+    console.log("Parser response =", response);
+    return response;
   }
 }
