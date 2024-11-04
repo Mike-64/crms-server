@@ -127,6 +127,8 @@ export class LedgerService {
       this.logger.log(
         `[registerCredentialDefinition] Registered Credential Definition: ${credentialDefinitionResult.credentialDefinitionState.credentialDefinitionId}`,
       );
+      this.credoService.credentialDefinition = credentialDefinitionResult.credentialDefinitionState;
+      
       return credentialDefinitionResult.credentialDefinitionState
         .credentialDefinitionId;
     } catch (error) {

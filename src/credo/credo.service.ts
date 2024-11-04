@@ -34,9 +34,13 @@ import {
   BaseLogger,
   DidRepository,
   CredentialExchangeRecord,
+  AutoAcceptCredential,
+  AutoAcceptProof,
   DifPresentationExchangeDefinitionV2,
   DifPresentationExchangeService,
-} from "@credo-ts/core";
+  ProofsModule,
+  V2ProofProtocol,
+} from '@credo-ts/core';
 import { HttpInboundTransport, agentDependencies } from "@credo-ts/node";
 import { AskarModule } from "@credo-ts/askar";
 import { ariesAskar } from "@hyperledger/aries-askar-nodejs";
@@ -53,9 +57,12 @@ import type { IndyVdrPoolConfig } from "@credo-ts/indy-vdr";
 import {
   AnonCredsCredentialFormatService,
   AnonCredsModule,
+  AnonCredsProofFormatService,
   LegacyIndyCredentialFormatService,
+  LegacyIndyProofFormatService,
   RegisterCredentialDefinitionReturnStateFinished,
-} from "@credo-ts/anoncreds";
+  V1ProofProtocol,
+} from '@credo-ts/anoncreds';
 import {
   DrpcModule,
   DrpcRecord,
@@ -67,6 +74,7 @@ import { Workflow } from "./workflow";
 import { ParserService } from "src/parser/parser.service";
 import { anoncreds } from "@hyperledger/anoncreds-nodejs";
 import {
+  OpenId4VcHolderModule,
   OpenId4VcIssuerModule,
   OpenId4VcIssuerRecord,
   OpenId4VcSiopResolvedAuthorizationRequest,
@@ -102,7 +110,8 @@ const universityDegreePresentationDefinition = {
       },
     },
   ],
-};
+};import { ApiUriTooLongResponse } from "@nestjs/swagger";
+
 @Injectable()
 export class CredoService {
   private readonly logger = new Logger(CredoService.name);
@@ -170,14 +179,24 @@ export class CredoService {
         askar: new AskarModule({
           ariesAskar,
         }),
-
+        proofs: new ProofsModule({
+          autoAcceptProofs:AutoAcceptProof.Always,
+          proofProtocols: [
+            new V1ProofProtocol({
+              indyProofFormat: new LegacyIndyProofFormatService(),
+            }),
+            new V2ProofProtocol({
+              proofFormats: [new LegacyIndyProofFormatService(), new AnonCredsProofFormatService()],
+            }),
+          ],
+        }),
         connections: new ConnectionsModule({ autoAcceptConnections: true }),
 
         anoncreds: new AnonCredsModule({
           registries: [new IndyVdrAnonCredsRegistry()],
           anoncreds,
         }),
-
+        
         dids: new DidsModule({
           registrars: [new IndyVdrIndyDidRegistrar()],
           resolvers: [new IndyVdrIndyDidResolver()],
@@ -199,6 +218,7 @@ export class CredoService {
         }),
         // to issue a credential
         credentials: new CredentialsModule({
+          autoAcceptCredentials:AutoAcceptCredential.Always,
           credentialProtocols: [
             new V2CredentialProtocol({
               credentialFormats: [
@@ -398,6 +418,7 @@ export class CredoService {
           this.logger.log(
             `Connection for out-of-band id ${outOfBandRecord.id} completed.`
           );
+          this.outOfBandId = outOfBandRecord.id;
           payload.connectionRecord.metadata.set(
             "StudentRecord",
             this.metadataRecord.get(outOfBandRecord.id)
@@ -495,6 +516,9 @@ export class CredoService {
               credentialRecordId: payload.credentialRecord.id,
             });
             break;
+          case CredentialState.OfferReceived:
+            await this.agent.credentials.acceptOffer({credentialRecordId:payload.credentialRecord.id,autoAcceptCredential:AutoAcceptCredential.Always})
+            break;
           case CredentialState.CredentialIssued: // Adjusted to match your enum
             this.logger.log(`Credential issued to holder.`);
             // Handle the issuance process or update state as necessary
@@ -543,7 +567,7 @@ export class CredoService {
     await this.printProofFlow(`Creating new proof attribute for 'name' ...\n`);
     const proofAttribute = {
       name: {
-        name: "name",
+        name: 'name',
         restrictions: [
           {
             cred_def_id: this.credentialDefinition?.credentialDefinitionId,
@@ -562,7 +586,7 @@ export class CredoService {
     await this.printProofFlow("\nRequesting proof...\n");
 
     const proofExchangeRecord = await agent!.proofs.requestProof({
-      protocolVersion: "v2",
+      protocolVersion: 'v2',
       connectionId: connectionRecord.id,
       proofFormats: {
         anoncreds: {
@@ -581,10 +605,9 @@ export class CredoService {
     agentName: string
   ) {
     const agent = this.getAgentByName(agentName);
-    const requestedCredentials =
-      await agent!.proofs.selectCredentialsForRequest({
-        proofRecordId: proofRecord.id,
-      });
+    const requestedCredentials = await agent!.proofs.selectCredentialsForRequest({
+      proofRecordId: proofRecord.id,
+    })
 
     await agent!.proofs.acceptRequest({
       proofRecordId: proofRecord.id,
