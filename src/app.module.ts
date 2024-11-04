@@ -18,6 +18,8 @@ import { JobsModule } from './jobs/jobs.module';
 import { Job } from './jobs/entities/job.entity';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { OperationsModule } from './operations/operations.module';
+import { ProofsModule } from './proofs/proofs.module';
+import { CredentialModule } from './credential/credential.module';
 
 @Module({
   imports: [
@@ -47,6 +49,8 @@ import { OperationsModule } from './operations/operations.module';
       }),
     }),
     OperationsModule,
+    ProofsModule,
+    CredentialModule,
   ],
   controllers: [AppController, Oid4vcController],
   providers: [AppService, Oid4vcService],
