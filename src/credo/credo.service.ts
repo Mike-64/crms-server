@@ -355,7 +355,7 @@ export class CredoService {
         const outOfBandRecord = await agent.oob.createInvitation();
         const attachment = new Attachment({
           id: "1",
-          description: "student",
+          description: "Record",
           data: { json: attachmentData },
         });
         outOfBandRecord.outOfBandInvitation.addAppendedAttachment(attachment);
@@ -420,7 +420,7 @@ export class CredoService {
           );
           this.outOfBandId = outOfBandRecord.id;
           payload.connectionRecord.metadata.set(
-            "StudentRecord",
+            "Record",
             this.metadataRecord.get(outOfBandRecord.id)
           );
           const connectionService = new ConnectionService(
